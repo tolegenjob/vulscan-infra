@@ -5,3 +5,12 @@ build/
 .env
 *.log
 out/
+
+# evaluation/runner: результаты прогонов не коммитим, кроме манифеста
+# (план, E-1: "evaluation/runs/ (результаты, в .gitignore кроме манифестов)")
+# Директории не игнорируем (иначе git не спустится внутрь для исключения ниже),
+# игнорируем только их содержимое, и явно возвращаем manifest.json.
+evaluation/runs/*
+!evaluation/runs/*/
+evaluation/runs/*/*
+!evaluation/runs/*/manifest.json
