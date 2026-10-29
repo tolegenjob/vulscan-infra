@@ -1,0 +1,218 @@
+# Ground truth для lab-app (T-1). Формат и правило построения `key` — io.vulnscan.eval.CaseKey (E-1),
+# не корректируется под результаты сканера: любое изменение после первого запуска — отдельный коммит
+# с обоснованием (см. evaluation/GROUND_TRUTH_CHANGELOG.md, появится в E-1).
+#
+# key = "<METHOD> <normalizedPathTemplate> <parameterName>" (+ " <ownerLabel>-><attackerLabel>" для IDOR).
+# Для IDOR-эндпоинтов без варьируемого идентификатора в пути (например /api/admin/users)
+# parameterName заменяется литералом "-".
+#
+# safeDoubleOf (только на expectedVulnerable=true) — id случая из этого же файла с expectedVulnerable=false,
+# показывающего, что та же функциональность реализуема безопасно (проверяется GroundTruthConsistencyTest).
+version: 1
+labAppVersion: "0.1.0"
+
+cases:
+  # --- XSS: уязвимые (T-1 XSS-01…XSS-05) ---
+  - id: XSS-01
+    module: XSS
+    key: "GET /xss/reflect-text q"
+    expectedVulnerable: true
+    vulnType: XSS_REFLECTED
+    variant: HTML_TEXT
+    safeDoubleOf: XSS-S01
+  - id: XSS-02
+    module: XSS
+    key: "GET /xss/reflect-attr-dq q"
+    expectedVulnerable: true
+    vulnType: XSS_REFLECTED
+    variant: ATTR_DOUBLE_QUOTED
+    safeDoubleOf: XSS-S02
+  - id: XSS-03
+    module: XSS
+    key: "GET /xss/reflect-attr-sq q"
+    expectedVulnerable: true
+    vulnType: XSS_REFLECTED
+    variant: ATTR_SINGLE_QUOTED
+    safeDoubleOf: XSS-S02
+  - id: XSS-04
+    module: XSS
+    key: "GET /xss/reflect-js-string q"
+    expectedVulnerable: true
+    vulnType: XSS_REFLECTED
+    variant: SCRIPT_STRING_DQ
+    safeDoubleOf: XSS-S03
+  - id: XSS-05
+    module: XSS
+    key: "POST /xss/stored-guestbook message"
+    expectedVulnerable: true
+    vulnType: XSS_STORED
+    variant: HTML_TEXT
+    safeDoubleOf: XSS-S05
+
+  # --- XSS: безопасные двойники (XSS-S01…XSS-S05) ---
+  - id: XSS-S01
+    module: XSS
+    key: "GET /safe/xss/encoded-text q"
+    expectedVulnerable: false
+  - id: XSS-S02
+    module: XSS
+    key: "GET /safe/xss/encoded-attr q"
+    expectedVulnerable: false
+  - id: XSS-S03
+    module: XSS
+    key: "GET /safe/xss/json-echo q"
+    expectedVulnerable: false
+  - id: XSS-S04
+    module: XSS
+    key: "GET /safe/xss/no-reflect q"
+    expectedVulnerable: false
+  - id: XSS-S05
+    module: XSS
+    key: "GET /safe/xss/textarea-encoded q"
+    expectedVulnerable: false
+
+  # --- SQLi: уязвимые ---
+  - id: SQLI-01
+    module: SQLI
+    key: "GET /sqli/error/products id"
+    expectedVulnerable: true
+    vulnType: SQLI_ERROR_BASED
+    safeDoubleOf: SQLI-S01
+  - id: SQLI-02
+    module: SQLI
+    key: "GET /sqli/boolean/search name"
+    expectedVulnerable: true
+    vulnType: SQLI_BOOLEAN_BASED
+    safeDoubleOf: SQLI-S02
+  - id: SQLI-03
+    module: SQLI
+    key: "GET /sqli/time/lookup code"
+    expectedVulnerable: true
+    vulnType: SQLI_TIME_BASED
+    safeDoubleOf: SQLI-S02
+
+  # --- SQLi: безопасные двойники ---
+  - id: SQLI-S01
+    module: SQLI
+    key: "GET /safe/sqli/products id"
+    expectedVulnerable: false
+  - id: SQLI-S02
+    module: SQLI
+    key: "GET /safe/sqli/search name"
+    expectedVulnerable: false
+
+  # --- SQLi: «ложные признаки» (все expectedVulnerable=false) ---
+  - id: SQLI-FP01
+    module: SQLI
+    key: "GET /fp/sqli/always500 id"
+    expectedVulnerable: false
+  - id: SQLI-FP02
+    module: SQLI
+    key: "GET /fp/sqli/random-block id"
+    expectedVulnerable: false
+  - id: SQLI-FP03
+    module: SQLI
+    key: "GET /fp/sqli/slow id"
+    expectedVulnerable: false
+  - id: SQLI-FP04
+    module: SQLI
+    key: "GET /fp/sqli/sql-in-docs id"
+    expectedVulnerable: false
+  - id: SQLI-FP05
+    module: SQLI
+    key: "GET /fp/sqli/waf id"
+    expectedVulnerable: false
+  - id: SQLI-FP06
+    module: SQLI
+    key: "GET /fp/sqli/rate-limit id"
+    expectedVulnerable: false
+
+  # --- IDOR: уязвимые (IDOR-01…IDOR-08) ---
+  - id: IDOR-01
+    module: IDOR
+    key: "GET /api/orders/{id} id alice->bob"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S01
+  - id: IDOR-02
+    module: IDOR
+    key: "GET /api/orders/{id} id bob->alice"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S02
+  - id: IDOR-03
+    module: IDOR
+    key: "GET /api/orders/{id} id admin->bob"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S01
+  - id: IDOR-04
+    module: IDOR
+    key: "GET /api/orders/{id} id admin->alice"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S02
+  - id: IDOR-05
+    module: IDOR
+    key: "GET /api/documents/{id} id bob->alice"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S04
+  - id: IDOR-06
+    module: IDOR
+    key: "GET /api/documents/{id} id admin->alice"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S03
+  - id: IDOR-07
+    module: IDOR
+    key: "GET /api/documents/{id} id admin->bob"
+    expectedVulnerable: true
+    vulnType: IDOR_HORIZONTAL
+    safeDoubleOf: IDOR-S03
+  - id: IDOR-08
+    module: IDOR
+    key: "GET /api/admin/users - admin->bob"
+    expectedVulnerable: true
+    vulnType: IDOR_VERTICAL
+    safeDoubleOf: IDOR-S05
+
+  # --- IDOR: безопасные двойники и разрешённый доступ ---
+  - id: IDOR-S01
+    module: IDOR
+    key: "GET /api/safe/orders/{id} id alice->bob"
+    expectedVulnerable: false
+  - id: IDOR-S02
+    module: IDOR
+    key: "GET /api/safe/orders/{id} id bob->alice"
+    expectedVulnerable: false
+  - id: IDOR-S03
+    module: IDOR
+    key: "GET /api/safe/documents/{id} id admin->bob"
+    expectedVulnerable: false
+  - id: IDOR-S04
+    # документ 2001 явно расшарен alice для bob — это разрешённый доступ, а не IDOR.
+    module: IDOR
+    key: "GET /api/safe/documents/{id} id alice->bob"
+    expectedVulnerable: false
+  - id: IDOR-S05
+    module: IDOR
+    key: "GET /api/safe/admin/users - admin->bob"
+    expectedVulnerable: false
+  - id: IDOR-PUB01
+    # /api/posts/{id} — публичный по назначению; отсутствие авторизации — не находка.
+    module: IDOR
+    key: "GET /api/posts/{id} id alice->bob"
+    expectedVulnerable: false
+
+  # --- IDOR: «ложные признаки» (expectedVulnerable=false) ---
+  - id: IDOR-FP01
+    # /api/fp/orders/{id} — для чужого заказа всегда 200 с {}; маркеров владельца в ответе никогда нет.
+    module: IDOR
+    key: "GET /api/fp/orders/{id} id alice->bob"
+    expectedVulnerable: false
+  - id: IDOR-FP02
+    # /api/fp/slow-session — сессия протухает после N обращений; INCONCLUSIVE, а не finding.
+    module: IDOR
+    key: "GET /api/fp/slow-session - alice->bob"
+    expectedVulnerable: false

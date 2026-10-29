@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: lab-app
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/labapp}
+    username: ${DB_USER:labapp}
+    password: ${DB_PASSWORD:labapp}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:seed.sql
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+lab:
+  # После скольких запросов к /api/fp/slow-session сессия вызывающего признаётся протухшей (I-6, lab-app T-1).
+  slow-session-max-hits: ${LAB_SLOW_SESSION_MAX_HITS:2}
