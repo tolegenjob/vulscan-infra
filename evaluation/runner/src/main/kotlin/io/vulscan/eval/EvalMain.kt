@@ -197,7 +197,7 @@ fun main(args: Array<String>) {
             val scan = pollUntilTerminal(client, scanId)
             val finishedMs = System.currentTimeMillis() - started
             val findings = client.listAllFindings(scanId)
-            saveRaw(File(rawDir, "$label__${scenario.module}-$repeat.json"), scanId, scan, findings)
+            saveRaw(File(rawDir, "${label}__${scenario.module}-$repeat.json"), scanId, scan, findings)
 
             val evalFindings = toEvalFindings(client, scenario.module, findings)
             val requestsSent = scan.get("jobs")?.firstOrNull()?.get("requestsSent")?.asInt() ?: 0
