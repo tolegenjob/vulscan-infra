@@ -24,7 +24,9 @@ import java.io.FileInputStream
  * совместимости с PostgreSQL, чтобы schema.sql/seed.sql (стандартный SQL, без специфики диалекта)
  * применились без изменений.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+// MOCK (а не NONE) обязателен: RequestMappingHandlerMapping регистрируется только в веб-контексте,
+// но реальный сервер при этом не поднимается.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @TestPropertySource(
     properties = [
         "spring.datasource.url=jdbc:h2:mem:labapp-groundtruth;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
