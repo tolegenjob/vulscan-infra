@@ -66,7 +66,7 @@ class CoreApiClient(baseUrl: String) {
         var page = 0
         while (true) {
             val response = listFindingsPage(scanId, page, pageSize)
-            response.get("items").forEach { items += it }
+            response.get("items").toList().forEach { items.add(it) }
             val total = response.get("total").asLong()
             if (items.size.toLong() >= total || response.get("items").size() == 0) break
             page++

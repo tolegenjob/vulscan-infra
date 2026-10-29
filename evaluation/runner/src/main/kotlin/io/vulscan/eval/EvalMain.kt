@@ -135,7 +135,7 @@ private fun reportFromRaw(runDir: File, groundTruthFile: File, threshold: Verdic
             val raw = Json.mapper.readTree(file)
             val scan = raw.get("scan")
             val findingsRaw = raw.get("findings")
-            val evalFindings = findingsRaw.map { node ->
+            val evalFindings = findingsRaw.toList().map { node ->
                 EvalFinding(
                     id = node.get("id").asText(),
                     method = node.get("method").asText(),
@@ -160,10 +160,10 @@ private fun reportFromRaw(runDir: File, groundTruthFile: File, threshold: Verdic
 private fun saveRaw(file: File, scanId: String, scan: JsonNode, findings: List<JsonNode>) {
     val root = Json.mapper.createObjectNode()
     root.put("scanId", scanId)
-    root.set<JsonNode>("scan", scan)
+    root.set("scan", scan)
     val findingsArray = Json.mapper.createArrayNode()
     findings.forEach { findingsArray.add(it) }
-    root.set<JsonNode>("findings", findingsArray)
+    root.set("findings", findingsArray)
     file.writeText(Json.mapper.writeValueAsString(root))
 }
 
