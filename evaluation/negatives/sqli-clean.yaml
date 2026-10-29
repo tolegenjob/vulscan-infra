@@ -1,0 +1,25 @@
+# Негативная цель SQLi (план, E-2.4): lab-app-clean, те же три маршрута, что в scenarios/sqli.yaml,
+# но профиль clean (io.vulscan.lab.clean.CleanSqliController) — параметризованные запросы.
+# timeBased=true здесь же (один прогон, не два) — на негативной цели раздельная строка не нужна.
+module: SQLI
+target:
+  name: sqli-clean-eval
+  baseUrl: http://lab-app-clean:8080
+endpoints:
+  - method: GET
+    url: http://lab-app-clean:8080/sqli/error/products
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app-clean:8080/sqli/boolean/search
+    idempotent: true
+    parameters: [{ name: name, location: QUERY, sampleValue: "Keyboard Lab 100" }]
+  - method: GET
+    url: http://lab-app-clean:8080/sqli/time/lookup
+    idempotent: true
+    parameters: [{ name: code, location: QUERY, sampleValue: "KB-100" }]
+options:
+  sqli:
+    errorBased: true
+    booleanBased: true
+    timeBased: true

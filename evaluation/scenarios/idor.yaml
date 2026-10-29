@@ -1,0 +1,184 @@
+# Эксперимент IDOR (план, E-2.3): IDOR-01..08 (горизонтальные + одна вертикальная), их безопасные
+# двойники IDOR-S01..S05, публичный IDOR-PUB01 и «шумовые» IDOR-FP01/FP02 — все на данных из seed.sql
+# (testbeds/lab-app): orders 1001=alice/1002=bob/1003=admin, documents 2001=alice(shared->bob)/2002=bob/2003=admin,
+# posts 3001=alice (публичный).
+#
+# identities/resources создаются в Core автоматически (см. комментарий в EvalMain.Scenario) — для
+# каждого ресурса `ownerMarkers: ["$.content"]` ("$.users[0].username" для /api/admin/users) — это
+# JSONPath к значению, которое совпадёт в ответе владельца и атакующего ТОЛЬКО если доступ реально
+# утёк (I-3/I-5): текст заказа/документа уникален на запись, список пользователей — общий для всех.
+#
+# Эндпоинты без варьируемого id (`/api/admin/users`, `/api/safe/admin/users`, `/api/fp/slow-session`) —
+# idParameter.name буквально "-" (безвредный лишний query-параметр "?-=...", сервер его игнорирует):
+# тогда Core finding.parameterName = "-", что совпадает с литералом "-" в ground-truth.yaml
+# (там это обозначает отсутствие варьируемого параметра, см. комментарий в начале того файла).
+module: IDOR
+target:
+  name: idor-eval
+  baseUrl: http://lab-app:8080
+endpoints:
+  - method: GET
+    url: http://lab-app:8080/api/orders/{id}
+    idempotent: true
+    parameters: [{ name: id, location: PATH, sampleValue: "1001" }]
+  - method: GET
+    url: http://lab-app:8080/api/documents/{id}
+    idempotent: true
+    parameters: [{ name: id, location: PATH, sampleValue: "2001" }]
+  - method: GET
+    url: http://lab-app:8080/api/admin/users
+    idempotent: true
+    parameters: []
+  - method: GET
+    url: http://lab-app:8080/api/safe/orders/{id}
+    idempotent: true
+    parameters: [{ name: id, location: PATH, sampleValue: "1001" }]
+  - method: GET
+    url: http://lab-app:8080/api/safe/documents/{id}
+    idempotent: true
+    parameters: [{ name: id, location: PATH, sampleValue: "2001" }]
+  - method: GET
+    url: http://lab-app:8080/api/safe/admin/users
+    idempotent: true
+    parameters: []
+  - method: GET
+    url: http://lab-app:8080/api/posts/{id}
+    idempotent: true
+    parameters: [{ name: id, location: PATH, sampleValue: "3001" }]
+  - method: GET
+    url: http://lab-app:8080/api/fp/orders/{id}
+    idempotent: true
+    parameters: [{ name: id, location: PATH, sampleValue: "1001" }]
+  - method: GET
+    url: http://lab-app:8080/api/fp/slow-session
+    idempotent: true
+    parameters: []
+
+identities:
+  - { label: alice, role: USER, loginUrl: "http://lab-app:8080/login", username: alice, password: alice-pass-1 }
+  - { label: bob, role: USER, loginUrl: "http://lab-app:8080/login", username: bob, password: bob-pass-1 }
+  - { label: admin, role: ADMIN, loginUrl: "http://lab-app:8080/login", username: admin, password: admin-pass-1 }
+
+resources:
+  # --- IDOR-01..04: /api/orders/{id} (уязвимо) ---
+  - endpoint: "GET http://lab-app:8080/api/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1001"
+    owner: alice
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access: [{ identity: bob, expected: DENY }] # IDOR-01: alice->bob
+  - endpoint: "GET http://lab-app:8080/api/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1002"
+    owner: bob
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access: [{ identity: alice, expected: DENY }] # IDOR-02: bob->alice
+  - endpoint: "GET http://lab-app:8080/api/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1003"
+    owner: admin
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access:
+      - { identity: bob, expected: DENY } # IDOR-03: admin->bob
+      - { identity: alice, expected: DENY } # IDOR-04: admin->alice
+
+  # --- IDOR-05..07: /api/documents/{id} (уязвимо) ---
+  - endpoint: "GET http://lab-app:8080/api/documents/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "2002"
+    owner: bob
+    sensitivity: MEDIUM
+    ownerMarkers: ["$.content"]
+    access: [{ identity: alice, expected: DENY }] # IDOR-05: bob->alice
+  - endpoint: "GET http://lab-app:8080/api/documents/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "2003"
+    owner: admin
+    sensitivity: MEDIUM
+    ownerMarkers: ["$.content"]
+    access:
+      - { identity: alice, expected: DENY } # IDOR-06: admin->alice
+      - { identity: bob, expected: DENY } # IDOR-07: admin->bob
+
+  # --- IDOR-08: /api/admin/users (уязвимо, вертикальный) ---
+  - endpoint: "GET http://lab-app:8080/api/admin/users"
+    idParameter: { name: "-", location: QUERY }
+    idValue: "admin-users"
+    owner: admin
+    sensitivity: HIGH
+    ownerMarkers: ["$.users[0].username"]
+    access: [{ identity: bob, expected: DENY }] # IDOR-08: admin->bob
+
+  # --- IDOR-S01, S02: /api/safe/orders/{id} (безопасный двойник) ---
+  - endpoint: "GET http://lab-app:8080/api/safe/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1001"
+    owner: alice
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access: [{ identity: bob, expected: DENY }] # IDOR-S01: alice->bob
+  - endpoint: "GET http://lab-app:8080/api/safe/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1002"
+    owner: bob
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access: [{ identity: alice, expected: DENY }] # IDOR-S02: bob->alice
+
+  # --- IDOR-S03, S04: /api/safe/documents/{id} ---
+  - endpoint: "GET http://lab-app:8080/api/safe/documents/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "2003"
+    owner: admin
+    sensitivity: MEDIUM
+    ownerMarkers: ["$.content"]
+    access: [{ identity: bob, expected: DENY }] # IDOR-S03: admin->bob
+  - endpoint: "GET http://lab-app:8080/api/safe/documents/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "2001"
+    owner: alice
+    sensitivity: MEDIUM
+    ownerMarkers: ["$.content"]
+    # Документ 2001 явно расшарен alice для bob — ожидаемый ALLOW, не DENY (IDOR-S04: не IDOR, а разрешённый доступ).
+    access: [{ identity: bob, expected: ALLOW }] # IDOR-S04: alice->bob
+
+  # --- IDOR-S05: /api/safe/admin/users ---
+  - endpoint: "GET http://lab-app:8080/api/safe/admin/users"
+    idParameter: { name: "-", location: QUERY }
+    idValue: "admin-users"
+    owner: admin
+    sensitivity: HIGH
+    ownerMarkers: ["$.users[0].username"]
+    access: [{ identity: bob, expected: DENY }] # IDOR-S05: admin->bob
+
+  # --- IDOR-PUB01: /api/posts/{id} — намеренно публичный, не IDOR ---
+  - endpoint: "GET http://lab-app:8080/api/posts/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "3001"
+    owner: alice
+    sensitivity: LOW
+    ownerMarkers: ["$.content"]
+    access: [{ identity: bob, expected: PUBLIC }] # IDOR-PUB01: alice->bob
+
+  # --- IDOR-FP01: /api/fp/orders/{id} — «шум» (200 с {} для чужого, без content/ownerEmail) ---
+  - endpoint: "GET http://lab-app:8080/api/fp/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1001"
+    owner: alice
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access: [{ identity: bob, expected: DENY }] # IDOR-FP01: alice->bob
+
+  # --- IDOR-FP02: /api/fp/slow-session — протухающая сессия (ограничение модели, см. evaluation/README.md) ---
+  - endpoint: "GET http://lab-app:8080/api/fp/slow-session"
+    idParameter: { name: "-", location: QUERY }
+    idValue: "session-probe"
+    owner: alice
+    sensitivity: LOW
+    ownerMarkers: []
+    access: [{ identity: bob, expected: DENY }] # IDOR-FP02: alice->bob
+
+options: {}

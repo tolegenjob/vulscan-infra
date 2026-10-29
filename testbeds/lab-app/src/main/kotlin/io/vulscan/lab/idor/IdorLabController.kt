@@ -3,6 +3,7 @@ package io.vulscan.lab.idor
 import io.vulscan.lab.auth.UsersRepository
 import io.vulscan.lab.auth.currentSession
 import jakarta.servlet.http.HttpServletRequest
+import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -12,8 +13,12 @@ import org.springframework.web.bind.annotation.RestController
 /**
  * Намеренно уязвимые IDOR-эндпоинты (T-1 IDOR-01…IDOR-08): проверяется только факт входа, не владение
  * объектом/роль. Безопасные двойники — в [io.vulscan.lab.safe.SafeIdorController].
+ *
+ * `@Profile("!clean")`: под профилем `clean` (E-2, негативная цель) те же маршруты отдаёт
+ * [io.vulscan.lab.clean.CleanIdorController] — с проверкой владения/роли.
  */
 @RestController
+@Profile("!clean")
 class IdorLabController(
     private val orders: OrdersRepository,
     private val documents: DocumentsRepository,

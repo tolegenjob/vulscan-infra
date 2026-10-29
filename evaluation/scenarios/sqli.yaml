@@ -1,0 +1,63 @@
+# Эксперимент SQLi (план, E-2.2), основной прогон: error/boolean-based включены, time-based — НЕТ
+# (по умолчанию SqliOptions.timeBased=false — выделено в sqli-timebased.yaml отдельной строкой, т.к.
+# "нагрузка отличается"). В этом прогоне SQLI-03 (/sqli/time/lookup) ожидаемо не детектируется —
+# это не баг, а задуманное отсутствие time-based проверки здесь (см. RESULTS.md).
+module: SQLI
+target:
+  name: sqli-eval
+  baseUrl: http://lab-app:8080
+endpoints:
+  # SQLI-01 error-based
+  - method: GET
+    url: http://lab-app:8080/sqli/error/products
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  # SQLI-02 boolean-based
+  - method: GET
+    url: http://lab-app:8080/sqli/boolean/search
+    idempotent: true
+    parameters: [{ name: name, location: QUERY, sampleValue: "Keyboard Lab 100" }]
+  # SQLI-03 time-based (здесь только зарегистрирован — без timeBased=true не проверяется)
+  - method: GET
+    url: http://lab-app:8080/sqli/time/lookup
+    idempotent: true
+    parameters: [{ name: code, location: QUERY, sampleValue: "KB-100" }]
+  # SQLI-S01, SQLI-S02 (безопасные двойники)
+  - method: GET
+    url: http://lab-app:8080/safe/sqli/products
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app:8080/safe/sqli/search
+    idempotent: true
+    parameters: [{ name: name, location: QUERY, sampleValue: "Keyboard Lab 100" }]
+  # SQLI-FP01..06 («ложные признаки» — проверка отсутствия FP)
+  - method: GET
+    url: http://lab-app:8080/fp/sqli/always500
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app:8080/fp/sqli/random-block
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app:8080/fp/sqli/slow
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app:8080/fp/sqli/sql-in-docs
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app:8080/fp/sqli/waf
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+  - method: GET
+    url: http://lab-app:8080/fp/sqli/rate-limit
+    idempotent: true
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+options:
+  sqli:
+    errorBased: true
+    booleanBased: true
+    timeBased: false

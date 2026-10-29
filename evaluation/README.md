@@ -13,13 +13,16 @@
 ```
 evaluation/
 ├── runner/            инструмент оценки (Kotlin, Gradle) — этот README его и описывает
-├── scenarios/          *.yaml сценарии прогона (план, E-2) — xss.yaml, sqli.yaml, idor.yaml
-├── negatives/          доп. "безопасные" эндпоинты для FP-проверки (план, E-2)
+├── scenarios/          *.yaml сценарии прогона (план, E-2): xss.yaml, sqli.yaml, sqli-timebased.yaml, idor.yaml
+├── negatives/          негативная цель "clean" (план, E-2.4) — см. negatives/README.md
 ├── runs/               результаты прогонов (в .gitignore, кроме manifest.json каждого прогона)
-└── RESULTS.md          итоговый отчёт для диплома (человеком написанный, план, E-2)
+└── RESULTS.md          итоговый отчёт для диплома (шаблон без чисел, заполняется по результатам, план E-2)
 ```
 
-`scenarios/`, `negatives/` и `RESULTS.md` — следующий шаг (E-2), пока не созданы.
+`sqli-timebased.yaml` — не из буквального списка файлов плана, но нужен, чтобы выполнить ЕГО ЖЕ
+требование ("time-based включается отдельным запуском... считается отдельной строкой"): раздельные
+файлы гарантируют, что два прогона одного модуля не перезатирают raw-результаты друг друга (см.
+"Отчёт при нескольких сценариях одного модуля" ниже).
 
 ## runner — что это
 
@@ -50,10 +53,13 @@ cd evaluation/runner
   --base-url http://127.0.0.1:8081 \
   --admin-user admin --admin-password <пароль из SCANNER_BOOTSTRAP_ADMIN_PASSWORD> \
   --ground-truth ../../../testbeds/lab-app/ground-truth.yaml \
-  --scenario ../scenarios/xss.yaml --scenario ../scenarios/sqli.yaml --scenario ../scenarios/idor.yaml \
+  --scenario ../scenarios/xss.yaml --scenario ../scenarios/sqli.yaml --scenario ../scenarios/sqli-timebased.yaml \
+  --scenario ../scenarios/idor.yaml \
   --repeats 5 --threshold LIKELY \
   --out ../runs/manual-$(date -u +%Y%m%d-%H%M%S)"
 ```
+
+Негативная цель "clean" (план, E-2.4) — отдельный прогон, отдельный ground-truth; см. `evaluation/negatives/README.md`.
 
 ### Флаги CLI
 
@@ -83,8 +89,45 @@ endpoints:
     idempotent: true
     parameters:
       - { name: q, location: QUERY, sampleValue: probe }
-options: {}                        # прокидывается как доп. поля в CreateScanRequest (xss/sqli/idor), необязательно
+options:                           # прокидывается как доп. поля в CreateScanRequest (xss/sqli/idor), необязательно
+  xss:
+    stored: true
+    allowStore: true
+    observeEndpoints: ["GET http://lab-app:8080/xss/stored-guestbook"]  # runner резолвит в observeEndpointIds (реальные UUID)
 ```
+
+### IDOR: `identities` и `resources`
+
+`CreateScanRequest.idor` несёт только `identityIds` — сами `resources` (ресурс + матрица доступа)
+Core подбирает из уже созданных access-rules таргета. Поэтому для IDOR сценарий описывает ещё два
+раздела, которые runner превращает в вызовы `POST .../identities` и `POST .../access-rules` **до**
+создания скана (один раз на сценарий, не на повтор):
+
+```yaml
+identities:
+  - { label: alice, role: USER, loginUrl: "http://lab-app:8080/login", username: alice, password: alice-pass-1 }
+resources:
+  - endpoint: "GET http://lab-app:8080/api/orders/{id}"      # ключ "METHOD url" — как в endpoints выше
+    idParameter: { name: id, location: PATH }                 # для эндпоинта без варьируемого id — { name: "-", location: QUERY }
+    idValue: "1001"
+    owner: alice                                              # label из identities
+    sensitivity: HIGH                                         # LOW | MEDIUM | HIGH, по умолчанию MEDIUM
+    ownerMarkers: ["$.content"]                                # JSONPath к значению, уникальному для владельца (I-5)
+    access: [ { identity: bob, expected: DENY } ]              # DENY | ALLOW | PUBLIC (ExpectedAccess) — finding формируется только при DENY
+```
+
+Для эндпоинта без варьируемого идентификатора (`/api/admin/users` и т.п.) `idParameter.name: "-"`
+(с `location: QUERY`) — безвредный лишний query-параметр (`?-=...`, сервер его игнорирует), который
+при этом даёт `Core finding.parameterName = "-"`, совпадающее с литералом `"-"`, который `CaseKey` и
+`ground-truth.yaml` используют для «параметра нет». См. `evaluation/scenarios/idor.yaml` для полного
+примера (все IDOR-01..08/S01..S05/PUB01/FP01-02 из `testbeds/lab-app/ground-truth.yaml`).
+
+### Один модуль, несколько сценариев (например, SQLi: обычный + time-based)
+
+Raw-файлы и строка отчёта группируются по **имени файла сценария**, а не по `module` — так второй
+прогон того же модуля (`sqli-timebased.yaml` рядом с `sqli.yaml`) получает свою строку в отчёте и не
+перезатирает raw-JSON первого (`raw/<имя файла>__<MODULE>-<повтор>.json`). `module` в самом YAML
+по-прежнему должен быть настоящим `ModuleType` (используется для API и фильтра ground-truth.yaml).
 
 ## Формат `manifest.json` (план, E-1.5)
 
@@ -123,3 +166,14 @@ sha256 файла `ground-truth.yaml`, порог, число повторов, 
   без повторных обращений к Core.
 - Нет локального Kotlin/Gradle-компилятора в среде разработки (эта сессия) — код проверялся только
   через CI GitHub Actions, без локальной компиляции.
+- Ни один сценарий (`scenarios/*.yaml`, `negatives/*.yaml`) не был прогнан вживую — в среде разработки
+  этой сессии нет Docker. Конфиг identities/resources для IDOR сверен с исходным кодом Core/модуля
+  (`IdorJobValidator`, `HorizontalAccessCheck`, `ResourceRequestFactory`), но не исполнялся.
+- Для `/api/orders/{id}` и `/api/documents/{id}` с владельцем `admin` (`idor.yaml`: IDOR-03/04/06/07)
+  модуль классифицирует проверку как вертикальную (`RoleOrder`: роль `admin` выше `alice`/`bob`),
+  хотя `ground-truth.yaml` помечает их `IDOR_HORIZONTAL`. На сопоставление TP/FP/FN это не влияет
+  (`CaseKey` не включает `vulnType`), но стоит иметь в виду при разборе findings в `RESULTS.md`.
+- `IDOR-FP02` (`/api/fp/slow-session`, протухающая сессия) — наиболее хрупкий ресурс матрицы доступа:
+  обращение к нему расходует лимит повторных входов сессии атакующей identity. В `idor.yaml` он
+  поставлен последним среди ресурсов, чтобы не задеть остальные проверки той же identity, но это
+  не гарантия детерминизма между повторами — см. раздел «Детерминизм» в `RESULTS.md`.

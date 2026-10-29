@@ -1,5 +1,6 @@
 package io.vulscan.lab.xss
 
+import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -12,8 +13,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Намеренно уязвимые reflected/stored XSS-эндпоинты (T-1 XSS-01…XSS-05). Параметр `q` отражается
  * без какого-либо кодирования — ровно те четыре контекста, которые ожидает XSS-модуль.
+ *
+ * `@Profile("!clean")`: под профилем `clean` (E-2, негативная цель) те же маршруты отдаёт
+ * [io.vulscan.lab.clean.CleanXssController] — без единой XSS-уязвимости.
  */
 @RestController
+@Profile("!clean")
 class XssLabController {
     private val guestbook = CopyOnWriteArrayList<String>()
 

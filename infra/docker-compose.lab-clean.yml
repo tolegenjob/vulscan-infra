@@ -1,0 +1,55 @@
+# Негативная цель (план, E-2.4): второй экземпляр lab-app, профиль `clean` — те же маршруты, что
+# у намеренно уязвимого lab-app, но без единой уязвимости (io.vulscan.lab.clean.*). Используется
+# для прогона evaluation/negatives/*.yaml (ожидается TP=0, FP=0, Precision=N/A — интерпретация по FP).
+#
+# Подключается ПОВЕРХ основного файла и lab.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml -f docker-compose.lab-clean.yml up -d
+#
+# Собственная БД (отдельная от lab-db) — тот же schema.sql/seed.sql, чтобы данные (orders/documents/
+# users) были идентичны уязвимому стенду; это два независимых инстанса, не общий testbed.
+
+services:
+  lab-db-clean:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      lab-net: {}
+    environment:
+      POSTGRES_DB: ${LAB_CLEAN_DB_NAME:-labapp_clean}
+      POSTGRES_USER: ${LAB_DB_USER:-labapp}
+      POSTGRES_PASSWORD: ${LAB_DB_PASSWORD:?Задайте LAB_DB_PASSWORD в .env}
+    volumes:
+      - labdbcleandata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LAB_DB_USER:-labapp} -d ${LAB_CLEAN_DB_NAME:-labapp_clean}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+
+  lab-app-clean:
+    build:
+      context: ../testbeds/lab-app
+    restart: unless-stopped
+    networks:
+      lab-net: {}
+    depends_on:
+      lab-db-clean:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://lab-db-clean:5432/${LAB_CLEAN_DB_NAME:-labapp_clean}
+      DB_USER: ${LAB_DB_USER:-labapp}
+      DB_PASSWORD: ${LAB_DB_PASSWORD}
+      SPRING_PROFILES_ACTIVE: clean
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+
+volumes:
+  labdbcleandata:

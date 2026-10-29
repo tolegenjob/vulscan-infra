@@ -16,10 +16,33 @@ import java.time.format.DateTimeFormatter
  * endpoints:
  *   - { method: GET, url: "http://lab-app:8080/xss/reflect-text", idempotent: true,
  *       parameters: [ { name: q, location: QUERY, sampleValue: probe } ] }
- * options: {}   # прокидывается как доп. поля CreateScanRequest (xss/sqli/idor), необязательно
+ * options: {}   # прокидывается как доп. поля CreateScanRequest (xss/sqli), необязательно
+ * ```
+ * Для IDOR нужны ещё `identities` и `resources` (создаются в Core до скана, `idor.identityIds`
+ * в `options` собирается автоматически из всех созданных identities — см. `evaluation/scenarios/idor.yaml`):
+ * ```yaml
+ * module: IDOR
+ * target: { name: "idor-eval", baseUrl: "http://lab-app:8080" }
+ * endpoints:
+ *   - { method: GET, url: "http://lab-app:8080/api/orders/{id}", idempotent: true,
+ *       parameters: [ { name: id, location: PATH, sampleValue: "1001" } ] }
+ * identities:
+ *   - { label: alice, role: USER, loginUrl: "http://lab-app:8080/login", username: alice, password: alice-pass-1 }
+ * resources:
+ *   - { endpoint: "GET http://lab-app:8080/api/orders/{id}", idParameter: { name: id, location: PATH },
+ *       idValue: "1001", owner: alice, sensitivity: HIGH, ownerMarkers: ["$.content"],
+ *       access: [ { identity: bob, expected: DENY } ] }
  * ```
  */
-data class Scenario(val module: String, val targetName: String, val targetBaseUrl: String, val endpoints: List<Map<String, Any?>>, val options: Map<String, Any?>) {
+data class Scenario(
+    val module: String,
+    val targetName: String,
+    val targetBaseUrl: String,
+    val endpoints: List<Map<String, Any?>>,
+    val identities: List<Map<String, Any?>>,
+    val resources: List<Map<String, Any?>>,
+    val options: Map<String, Any?>,
+) {
     companion object {
         fun load(file: File): Scenario {
             val root = file.inputStream().use {
@@ -31,10 +54,33 @@ data class Scenario(val module: String, val targetName: String, val targetBaseUr
             @Suppress("UNCHECKED_CAST")
             val endpoints = root["endpoints"] as List<Map<String, Any?>>
             @Suppress("UNCHECKED_CAST")
+            val identities = (root["identities"] as? List<Map<String, Any?>>) ?: emptyList()
+            @Suppress("UNCHECKED_CAST")
+            val resources = (root["resources"] as? List<Map<String, Any?>>) ?: emptyList()
+            @Suppress("UNCHECKED_CAST")
             val options = (root["options"] as? Map<String, Any?>) ?: emptyMap()
-            return Scenario(root["module"] as String, target["name"] as String, target["baseUrl"] as String, endpoints, options)
+            return Scenario(root["module"] as String, target["name"] as String, target["baseUrl"] as String, endpoints, identities, resources, options)
         }
     }
+}
+
+/** "GET http://lab-app:8080/api/orders/{id}" -> ("GET", "http://lab-app:8080/api/orders/{id}"), для ключа `resources[].endpoint`. */
+private fun endpointKeyOf(method: Any?, url: Any?): String = "${(method as String).uppercase()} $url"
+
+/**
+ * `options.xss.observeEndpoints` (список ключей "METHOD url", как в `resources[].endpoint`) — заменяется
+ * на `options.xss.observeEndpointIds` (реальные UUID), требуемые `CreateScanRequest.xss` для stored XSS
+ * (XssOptions.stored=true требует observeEndpointIds — XssJobValidator). Сценарий не может знать
+ * UUID заранее, поэтому ссылается на эндпоинт по тому же ключу, что и везде в формате сценария.
+ */
+private fun resolveObserveEndpoints(options: Map<String, Any?>, endpointIdByKey: Map<String, String>): Map<String, Any?> {
+    @Suppress("UNCHECKED_CAST")
+    val xss = options["xss"] as? Map<String, Any?> ?: return options
+    @Suppress("UNCHECKED_CAST")
+    val observeKeys = xss["observeEndpoints"] as? List<String> ?: return options
+    val ids = observeKeys.map { key -> endpointIdByKey[key] ?: error("options.xss.observeEndpoints: эндпоинт не найден — '$key'") }
+    val resolvedXss = (xss - "observeEndpoints") + mapOf("observeEndpointIds" to ids)
+    return options + mapOf("xss" to resolvedXss)
 }
 
 private class CliArgs(args: Array<String>) {
@@ -85,33 +131,79 @@ fun main(args: Array<String>) {
     val reports = mutableListOf<ModuleReport>()
     for (scenarioFile in scenarioFiles) {
         val scenario = Scenario.load(scenarioFile)
-        println("=== ${scenario.module}: подготовка target/эндпоинтов ===")
+        // Имя файла сценария (без расширения), а не scenario.module — так второй сценарий того же
+        // модуля (например, sqli-timebased.yaml — план E-2: time-based считается отдельной строкой,
+        // "нагрузка отличается") не перезатирает raw-файлы первого и не сливается с ним в отчёте.
+        val label = scenarioFile.nameWithoutExtension
+        println("=== $label (${scenario.module}): подготовка target/эндпоинтов ===")
         val targetId = client.createTarget("${scenario.targetName}-${System.currentTimeMillis()}", scenario.targetBaseUrl).get("id").asText()
         client.verifyTarget(targetId)
         client.approveTarget(targetId)
-        val endpointIds = scenario.endpoints.map { ep ->
+        val endpointIdByKey = LinkedHashMap<String, String>()
+        scenario.endpoints.forEach { ep ->
             @Suppress("UNCHECKED_CAST")
             val parameters = (ep["parameters"] as? List<Map<String, Any?>>) ?: emptyList()
-            client.createEndpoint(targetId, (ep["method"] as String), ep["url"] as String, parameters, (ep["idempotent"] as? Boolean) ?: false)
+            val id = client.createEndpoint(targetId, (ep["method"] as String), ep["url"] as String, parameters, (ep["idempotent"] as? Boolean) ?: false)
                 .get("id").asText()
+            endpointIdByKey[endpointKeyOf(ep["method"], ep["url"])] = id
+        }
+        val endpointIds = endpointIdByKey.values.toList()
+        val resolvedOptions = resolveObserveEndpoints(scenario.options, endpointIdByKey)
+
+        // IDOR: identities + resources/access-rules создаются в Core ДО скана (план, E-1/I-1..I-4);
+        // CreateScanRequest.idor несёт только identityIds — сами resources Core подбирает из уже
+        // созданных access-rules таргета. Для XSS/SQLi этот блок — no-op (identities/resources пустые).
+        val scanOptions: Map<String, Any?> = if (scenario.identities.isNotEmpty()) {
+            val identityIdByLabel = scenario.identities.associate { idy ->
+                val identityLabel = idy["label"] as String
+                val id = client.createIdentity(
+                    targetId, identityLabel, idy["role"] as String, "FORM_LOGIN",
+                    mapOf("loginUrl" to (idy["loginUrl"] as String)),
+                    mapOf("username" to (idy["username"] as String), "password" to (idy["password"] as String)),
+                ).get("id").asText()
+                identityLabel to id
+            }
+            scenario.resources.forEach { res ->
+                @Suppress("UNCHECKED_CAST")
+                val idParameter = res["idParameter"] as Map<String, Any?>
+                val endpointId = endpointIdByKey[res["endpoint"] as String]
+                    ?: error("resources: эндпоинт не найден среди endpoints — '${res["endpoint"]}'")
+                val ownerIdentityId = identityIdByLabel[res["owner"] as String]
+                    ?: error("resources: identity '${res["owner"]}' не описана в identities")
+                @Suppress("UNCHECKED_CAST")
+                val ownerMarkers = (res["ownerMarkers"] as? List<String>) ?: emptyList()
+                @Suppress("UNCHECKED_CAST")
+                val access = (res["access"] as List<Map<String, Any?>>).map { rule ->
+                    val identityId = identityIdByLabel[rule["identity"] as String]
+                        ?: error("resources.access: identity '${rule["identity"]}' не описана в identities")
+                    mapOf("identityId" to identityId, "expected" to rule["expected"])
+                }
+                client.createAccessRule(
+                    targetId, endpointId, idParameter, res["idValue"] as String, ownerIdentityId,
+                    (res["sensitivity"] as? String) ?: "MEDIUM", ownerMarkers, access,
+                )
+            }
+            resolvedOptions + mapOf("idor" to mapOf("identityIds" to identityIdByLabel.values.toList()))
+        } else {
+            resolvedOptions
         }
 
         val cases = groundTruth.casesFor(scenario.module)
         val repeatResults = mutableListOf<RepeatResult>()
         for (repeat in 1..repeats) {
-            println("--- ${scenario.module}: повтор $repeat/$repeats ---")
+            println("--- $label: повтор $repeat/$repeats ---")
             val started = System.currentTimeMillis()
-            val scanId = client.createScan(targetId, listOf(scenario.module), endpointIds, scenario.options).get("id").asText()
+            val scanId = client.createScan(targetId, listOf(scenario.module), endpointIds, scanOptions).get("id").asText()
             val scan = pollUntilTerminal(client, scanId)
             val finishedMs = System.currentTimeMillis() - started
             val findings = client.listAllFindings(scanId)
-            saveRaw(File(rawDir, "${scenario.module}-$repeat.json"), scanId, scan, findings)
+            saveRaw(File(rawDir, "$label__${scenario.module}-$repeat.json"), scanId, scan, findings)
 
             val evalFindings = toEvalFindings(client, scenario.module, findings)
             val requestsSent = scan.get("jobs")?.firstOrNull()?.get("requestsSent")?.asInt() ?: 0
             repeatResults += RepeatResult(repeat, Metrics.of(Matcher.match(cases, evalFindings, threshold)), finishedMs, requestsSent)
         }
-        reports += ModuleReport(scenario.module, repeatResults)
+        reports += ModuleReport(label, repeatResults)
     }
 
     ReportWriter.writeCsv(File(outDir, "report.csv"), reports)
@@ -128,8 +220,11 @@ private fun reportFromRaw(runDir: File, groundTruthFile: File, threshold: Verdic
     val rawFiles = File(runDir, "raw").listFiles { f -> f.extension == "json" }?.sortedBy { it.name } ?: emptyList()
     require(rawFiles.isNotEmpty()) { "Нет сырых findings в $runDir/raw" }
 
-    val byModule = rawFiles.groupBy { it.name.substringBeforeLast('-') }
-    val reports = byModule.map { (module, files) ->
+    // Имя файла: "<label>__<MODULE>-<repeat>.json" (см. main() выше) — группируем по label (строка
+    // отчёта), а module (для фильтра ground-truth) берём из той же части имени, не из label.
+    val byLabel = rawFiles.groupBy { it.name.substringBefore("__") }
+    val reports = byLabel.map { (label, files) ->
+        val module = files.first().name.substringAfter("__").substringBeforeLast('-')
         val cases = groundTruth.casesFor(module)
         val repeats = files.mapIndexed { index, file ->
             val raw = Json.mapper.readTree(file)
@@ -149,7 +244,7 @@ private fun reportFromRaw(runDir: File, groundTruthFile: File, threshold: Verdic
             val requestsSent = scan.get("jobs")?.firstOrNull()?.get("requestsSent")?.asInt() ?: 0
             RepeatResult(index + 1, Metrics.of(Matcher.match(cases, evalFindings, threshold)), 0, requestsSent)
         }
-        ModuleReport(module, repeats)
+        ModuleReport(label, repeats)
     }
 
     ReportWriter.writeCsv(File(runDir, "report.csv"), reports)

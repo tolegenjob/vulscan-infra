@@ -1,0 +1,32 @@
+# Ground truth для негативной цели "clean" (план, E-2.4): lab-app-clean — тот же интерфейс
+# (testbeds/lab-app/src/main/kotlin/io/vulscan/lab/clean/*, профиль `clean`), что и обычный lab-app,
+# но без единой уязвимости соответствующего класса. Ключи — ТЕ ЖЕ, что и уязвимые кейсы в
+# testbeds/lab-app/ground-truth.yaml (XSS-01..05, SQLI-01..03, IDOR-01..08), но здесь
+# expectedVulnerable=false везде: сканер не должен найти ничего (ожидается TP=0, FP=0, Precision=N/A —
+# по плану результат интерпретируется по FP, а не по Precision/Recall).
+#
+# Этот файл НЕ редактируется под результаты сканера так же, как основной ground-truth.yaml (T-1,
+# правило из его собственного заголовка) — изменения после первого запуска фиксируются в
+# evaluation/GROUND_TRUTH_CHANGELOG.md, как и для основного файла.
+version: 1
+labAppVersion: "0.1.0-clean"
+
+cases:
+  - { id: CLEAN-XSS-01, module: XSS, key: "GET /xss/reflect-text q", expectedVulnerable: false }
+  - { id: CLEAN-XSS-02, module: XSS, key: "GET /xss/reflect-attr-dq q", expectedVulnerable: false }
+  - { id: CLEAN-XSS-03, module: XSS, key: "GET /xss/reflect-attr-sq q", expectedVulnerable: false }
+  - { id: CLEAN-XSS-04, module: XSS, key: "GET /xss/reflect-js-string q", expectedVulnerable: false }
+  - { id: CLEAN-XSS-05, module: XSS, key: "POST /xss/stored-guestbook message", expectedVulnerable: false }
+
+  - { id: CLEAN-SQLI-01, module: SQLI, key: "GET /sqli/error/products id", expectedVulnerable: false }
+  - { id: CLEAN-SQLI-02, module: SQLI, key: "GET /sqli/boolean/search name", expectedVulnerable: false }
+  - { id: CLEAN-SQLI-03, module: SQLI, key: "GET /sqli/time/lookup code", expectedVulnerable: false }
+
+  - { id: CLEAN-IDOR-01, module: IDOR, key: "GET /api/orders/{id} id alice->bob", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-02, module: IDOR, key: "GET /api/orders/{id} id bob->alice", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-03, module: IDOR, key: "GET /api/orders/{id} id admin->bob", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-04, module: IDOR, key: "GET /api/orders/{id} id admin->alice", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-05, module: IDOR, key: "GET /api/documents/{id} id bob->alice", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-06, module: IDOR, key: "GET /api/documents/{id} id admin->alice", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-07, module: IDOR, key: "GET /api/documents/{id} id admin->bob", expectedVulnerable: false }
+  - { id: CLEAN-IDOR-08, module: IDOR, key: "GET /api/admin/users - admin->bob", expectedVulnerable: false }

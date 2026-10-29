@@ -46,6 +46,37 @@ class CoreApiClient(baseUrl: String) {
             Json.write(mapOf("method" to method, "url" to url, "parameters" to parameters, "idempotent" to idempotent)),
         )
 
+    /** Тестовая идентичность (I-1) для IDOR: `authType="FORM_LOGIN"`, `authConfig={loginUrl}`, `secret={username,password}`. */
+    fun createIdentity(targetId: String, label: String, role: String, authType: String, authConfig: Map<String, String>, secret: Map<String, String>): JsonNode =
+        send(
+            "POST",
+            "/targets/$targetId/identities",
+            Json.write(mapOf("label" to label, "role" to role, "authType" to authType, "authConfig" to authConfig, "secret" to secret)),
+        )
+
+    /** Правило доступа к ресурсу (I-2..I-4): один вызов = один ресурс + вся его матрица доступа (`access`). */
+    fun createAccessRule(
+        targetId: String,
+        endpointId: String,
+        idParameter: Map<String, Any?>,
+        idValue: String,
+        ownerIdentityId: String,
+        sensitivity: String,
+        ownerMarkers: List<String>,
+        access: List<Map<String, Any?>>,
+    ): JsonNode =
+        send(
+            "POST",
+            "/targets/$targetId/access-rules",
+            Json.write(
+                mapOf(
+                    "endpointId" to endpointId, "idParameter" to idParameter, "idValue" to idValue,
+                    "ownerIdentityId" to ownerIdentityId, "sensitivity" to sensitivity,
+                    "ownerMarkers" to ownerMarkers, "access" to access,
+                ),
+            ),
+        )
+
     fun createScan(targetId: String, modules: List<String>, endpointIds: List<String>, extra: Map<String, Any?> = emptyMap()): JsonNode {
         val payload = LinkedHashMap<String, Any?>()
         payload["targetId"] = targetId

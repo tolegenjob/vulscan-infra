@@ -1,5 +1,6 @@
 package io.vulscan.lab.sqli
 
+import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.jdbc.core.JdbcTemplate
@@ -10,8 +11,12 @@ import org.springframework.web.bind.annotation.RestController
 /**
  * Намеренно уязвимые SQLi-эндпоинты (T-1): прямая конкатенация строки запроса в JDBC, без PreparedStatement.
  * Уязвимость — ТОЛЬКО здесь, в маршрутах /sqli/...; безопасные двойники — в [io.vulscan.lab.safe.SafeSqliController].
+ *
+ * `@Profile("!clean")`: под профилем `clean` (E-2, негативная цель) те же маршруты отдаёт
+ * [io.vulscan.lab.clean.CleanSqliController] — параметризованные запросы, без инъекции.
  */
 @RestController
+@Profile("!clean")
 class SqliLabController(private val jdbc: JdbcTemplate) {
 
     /** error-based: ошибка СУБД (с текстом) возвращается прямо в ответе. */

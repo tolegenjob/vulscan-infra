@@ -1,0 +1,67 @@
+# Эксперимент XSS (план, E-2.1): положительные XSS-01..05 (4 reflected-контекста + stored) и их
+# безопасные двойники XSS-S01..S05 — в одном скане, чтобы заодно проверить отсутствие FP на /safe/xss/*.
+# Соответствие ключам ground-truth.yaml (testbeds/lab-app/ground-truth.yaml) — построчно ниже.
+module: XSS
+target:
+  name: xss-eval
+  baseUrl: http://lab-app:8080
+endpoints:
+  # XSS-01 (HTML_TEXT)
+  - method: GET
+    url: http://lab-app:8080/xss/reflect-text
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  # XSS-02 (ATTR_DOUBLE_QUOTED)
+  - method: GET
+    url: http://lab-app:8080/xss/reflect-attr-dq
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  # XSS-03 (ATTR_SINGLE_QUOTED)
+  - method: GET
+    url: http://lab-app:8080/xss/reflect-attr-sq
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  # XSS-04 (SCRIPT_STRING_DQ)
+  - method: GET
+    url: http://lab-app:8080/xss/reflect-js-string
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  # XSS-05 (stored, guestbook) — не idempotent: POST добавляет запись.
+  - method: POST
+    url: http://lab-app:8080/xss/stored-guestbook
+    idempotent: false
+    parameters: [{ name: message, location: BODY_FORM, sampleValue: probe }]
+  # Страница наблюдения для stored-проверки (options.xss.observeEndpoints ниже) — то же URL, метод GET.
+  - method: GET
+    url: http://lab-app:8080/xss/stored-guestbook
+    idempotent: true
+    parameters: []
+  # XSS-S01..S05 (безопасные двойники — проверка отсутствия FP)
+  - method: GET
+    url: http://lab-app:8080/safe/xss/encoded-text
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app:8080/safe/xss/encoded-attr
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app:8080/safe/xss/json-echo
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app:8080/safe/xss/no-reflect
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app:8080/safe/xss/textarea-encoded
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+# stored=true требует observeEndpointIds (XssJobValidator) — runner резолвит observeEndpoints
+# (ключ "METHOD url", как в endpoints выше) в реальный UUID после регистрации эндпоинтов.
+options:
+  xss:
+    reflected: true
+    stored: true
+    allowStore: true
+    observeEndpoints: ["GET http://lab-app:8080/xss/stored-guestbook"]

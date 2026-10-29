@@ -1,0 +1,38 @@
+# Негативная цель XSS (план, E-2.4): lab-app-clean, те же пять маршрутов, что в scenarios/xss.yaml,
+# но профиль clean (io.vulscan.lab.clean.CleanXssController) — без единой XSS-уязвимости.
+# Запускать: --ground-truth evaluation/negatives/ground-truth-clean.yaml --scenario evaluation/negatives/xss-clean.yaml
+module: XSS
+target:
+  name: xss-clean-eval
+  baseUrl: http://lab-app-clean:8080
+endpoints:
+  - method: GET
+    url: http://lab-app-clean:8080/xss/reflect-text
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app-clean:8080/xss/reflect-attr-dq
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app-clean:8080/xss/reflect-attr-sq
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app-clean:8080/xss/reflect-js-string
+    idempotent: true
+    parameters: [{ name: q, location: QUERY, sampleValue: probe }]
+  - method: POST
+    url: http://lab-app-clean:8080/xss/stored-guestbook
+    idempotent: false
+    parameters: [{ name: message, location: BODY_FORM, sampleValue: probe }]
+  - method: GET
+    url: http://lab-app-clean:8080/xss/stored-guestbook
+    idempotent: true
+    parameters: []
+options:
+  xss:
+    reflected: true
+    stored: true
+    allowStore: true
+    observeEndpoints: ["GET http://lab-app-clean:8080/xss/stored-guestbook"]
