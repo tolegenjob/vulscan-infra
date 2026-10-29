@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
-/** Безопасные двойники /sqli/** — тот же интерфейс, параметризованные запросы. */
+/** Безопасные двойники маршрутов /sqli/... — тот же интерфейс, параметризованные запросы. */
 @RestController
 class SafeSqliController(private val jdbc: JdbcTemplate) {
 

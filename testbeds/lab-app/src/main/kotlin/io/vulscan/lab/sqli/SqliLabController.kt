@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController
 
 /**
  * Намеренно уязвимые SQLi-эндпоинты (T-1): прямая конкатенация строки запроса в JDBC, без PreparedStatement.
- * Уязвимость — ТОЛЬКО здесь, в `/sqli/**`; безопасные двойники — в [io.vulscan.lab.safe.SafeSqliController].
+ * Уязвимость — ТОЛЬКО здесь, в маршрутах /sqli/...; безопасные двойники — в [io.vulscan.lab.safe.SafeSqliController].
  */
 @RestController
 class SqliLabController(private val jdbc: JdbcTemplate) {

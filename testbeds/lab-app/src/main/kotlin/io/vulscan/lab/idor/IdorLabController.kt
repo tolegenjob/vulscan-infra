@@ -44,5 +44,6 @@ class IdorLabController(
         return ResponseEntity.ok(mapOf("users" to rows))
     }
 
-    private fun unauthorized() = ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "not authenticated"))
+    private fun unauthorized(): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "not authenticated"))
 }

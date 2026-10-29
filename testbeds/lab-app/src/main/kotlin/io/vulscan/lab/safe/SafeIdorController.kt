@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
 
-/** Безопасные двойники /api/** — тот же интерфейс, с проверкой владения/роли/публичности. */
+/** Безопасные двойники маршрутов /api/... — тот же интерфейс, с проверкой владения/роли/публичности. */
 @RestController
 class SafeIdorController(
     private val orders: OrdersRepository,
@@ -55,5 +55,6 @@ class SafeIdorController(
         return ResponseEntity.ok(mapOf("users" to rows))
     }
 
-    private fun unauthorized() = ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "not authenticated"))
+    private fun unauthorized(): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "not authenticated"))
 }
