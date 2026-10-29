@@ -3,6 +3,7 @@ package io.vulscan.lab
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.TestPropertySource
 import org.springframework.web.bind.annotation.RequestMethod
@@ -37,7 +38,10 @@ import java.io.FileInputStream
 )
 class GroundTruthConsistencyTest {
 
+    // Actuator добавляет свой собственный controllerEndpointHandlerMapping того же типа —
+    // нужен именно bean веб-MVC контроллеров, а не actuator-эндпоинтов.
     @Autowired
+    @Qualifier("requestMappingHandlerMapping")
     private lateinit var mapping: RequestMappingHandlerMapping
 
     private data class Case(
