@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 class WellKnownController {
-    @GetMapping("/.well-known/vulnscan-{token:[^/]+}.txt", produces = [MediaType.TEXT_PLAIN_VALUE])
+    @GetMapping("/.well-known/vulnscan-{token}.txt", produces = [MediaType.TEXT_PLAIN_VALUE])
     fun verify(@PathVariable token: String): ResponseEntity<String> =
         ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body(token)
 }
