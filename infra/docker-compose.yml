@@ -1,0 +1,199 @@
+# N-1: воспроизводимое окружение. Запуск: infra/scripts/up.sh (собирает jar/дистрибутивы и поднимает стек).
+# Профиль lab (testbeds/lab-app + своя БД) подключается отдельным файлом: docker-compose.lab.yml.
+#
+# Требуемый layout каталогов — см. .env.example. Контексты сборки ниже указаны как пути от infra/
+# до репозиториев-соседей vulscan-infra.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-10m}"
+    max-file: "${LOG_MAX_FILE:-3}"
+
+x-hardened: &hardened
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+networks:
+  db-net:
+  bus-net:
+  lab-net:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${LAB_SUBNET}
+  edge:
+
+volumes:
+  pgdata:
+  kafka-data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [db-net]
+    environment:
+      POSTGRES_DB: ${CORE_DB_NAME:-vulscan}
+      POSTGRES_USER: ${CORE_DB_USER:-vulscan}
+      POSTGRES_PASSWORD: ${CORE_DB_PASSWORD:?Задайте CORE_DB_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CORE_DB_USER:-vulscan} -d ${CORE_DB_NAME:-vulscan}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *default-logging
+
+  kafka:
+    image: apache/kafka:3.8.0
+    restart: unless-stopped
+    networks: [bus-net]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Топики создаёт только kafka-init (с нужным числом партиций) — автосоздание отключено намеренно.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    logging: *default-logging
+
+  kafka-init:
+    image: apache/kafka:3.8.0
+    restart: "no"
+    networks: [bus-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ./kafka/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/sh", "/create-topics.sh"]
+    logging: *default-logging
+
+  core-backend:
+    build:
+      context: ../../vulscan-core-backend
+    restart: unless-stopped
+    <<: *hardened
+    networks: [db-net, bus-net, lab-net, edge]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${CORE_DB_NAME:-vulscan}
+      DB_USER: ${CORE_DB_USER:-vulscan}
+      DB_PASSWORD: ${CORE_DB_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_PROFILES_ACTIVE: docker
+      SCANNER_SECRET_KEY: ${SCANNER_SECRET_KEY:?Задайте SCANNER_SECRET_KEY в .env}
+      SCANNER_TOKEN_XSS: ${SCANNER_TOKEN_XSS:?Задайте SCANNER_TOKEN_XSS в .env}
+      SCANNER_TOKEN_SQLI: ${SCANNER_TOKEN_SQLI:?Задайте SCANNER_TOKEN_SQLI в .env}
+      SCANNER_TOKEN_IDOR: ${SCANNER_TOKEN_IDOR:?Задайте SCANNER_TOKEN_IDOR в .env}
+      SCANNER_BOOTSTRAP_ADMIN_USER: ${SCANNER_BOOTSTRAP_ADMIN_USER:-admin}
+      SCANNER_BOOTSTRAP_ADMIN_PASSWORD: ${SCANNER_BOOTSTRAP_ADMIN_PASSWORD:?Задайте SCANNER_BOOTSTRAP_ADMIN_PASSWORD в .env}
+      # Та же подсеть, что и ipam lab-net ниже — единственный источник истины (риск R-5).
+      SCANNER_ALLOWED_PRIVATE_CIDRS: ${LAB_SUBNET}
+    mem_limit: ${CORE_MEM_LIMIT:-768m}
+    cpus: ${CORE_CPUS:-1.5}
+    logging: *default-logging
+
+  xss-module:
+    build:
+      context: ../../vulscan-xss-module
+    restart: unless-stopped
+    <<: *hardened
+    networks: [bus-net, lab-net]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      core-backend:
+        condition: service_healthy
+    environment:
+      WORKER_CORE_BASE_URL: http://core-backend:8080
+      WORKER_SERVICE_TOKEN: ${SCANNER_TOKEN_XSS}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WORKER_ALLOWED_PRIVATE_CIDRS: ${LAB_SUBNET}
+    mem_limit: ${MODULE_MEM_LIMIT:-512m}
+    cpus: ${MODULE_CPUS:-1.0}
+    logging: *default-logging
+
+  sqli-module:
+    build:
+      context: ../../vulscan-sqli-module
+    restart: unless-stopped
+    <<: *hardened
+    networks: [bus-net, lab-net]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      core-backend:
+        condition: service_healthy
+    environment:
+      WORKER_CORE_BASE_URL: http://core-backend:8080
+      WORKER_SERVICE_TOKEN: ${SCANNER_TOKEN_SQLI}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WORKER_ALLOWED_PRIVATE_CIDRS: ${LAB_SUBNET}
+    mem_limit: ${MODULE_MEM_LIMIT:-512m}
+    cpus: ${MODULE_CPUS:-1.0}
+    logging: *default-logging
+
+  idor-module:
+    build:
+      context: ../../vulscan-idor-module
+    restart: unless-stopped
+    <<: *hardened
+    networks: [bus-net, lab-net]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      core-backend:
+        condition: service_healthy
+    environment:
+      WORKER_CORE_BASE_URL: http://core-backend:8080
+      WORKER_SERVICE_TOKEN: ${SCANNER_TOKEN_IDOR}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WORKER_ALLOWED_PRIVATE_CIDRS: ${LAB_SUBNET}
+    mem_limit: ${MODULE_MEM_LIMIT:-512m}
+    cpus: ${MODULE_CPUS:-1.0}
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ../../vulscan-frontend
+    restart: unless-stopped
+    networks: [edge]
+    depends_on:
+      core-backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_HOST_BIND:-127.0.0.1}:${FRONTEND_HOST_PORT:-8081}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging

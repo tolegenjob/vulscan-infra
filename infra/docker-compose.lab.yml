@@ -1,0 +1,52 @@
+# Профиль lab: лабораторная цель с заранее известными уязвимостями (T-1) + её собственная БД.
+# Подключается поверх основного файла:
+#   docker compose -f docker-compose.yml -f docker-compose.lab.yml up -d
+# (infra/scripts/up.sh делает это автоматически).
+#
+# lab-app слушает только lab-net (internal: true) — порт на хост не публикуется по умолчанию.
+# Для ручной отладки см. infra/README.md, раздел «lab-open».
+
+services:
+  lab-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      lab-net: {}
+    environment:
+      POSTGRES_DB: ${LAB_DB_NAME:-labapp}
+      POSTGRES_USER: ${LAB_DB_USER:-labapp}
+      POSTGRES_PASSWORD: ${LAB_DB_PASSWORD:?Задайте LAB_DB_PASSWORD в .env}
+    volumes:
+      - labdbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LAB_DB_USER:-labapp} -d ${LAB_DB_NAME:-labapp}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+
+  lab-app:
+    build:
+      context: ../testbeds/lab-app
+    restart: unless-stopped
+    networks:
+      lab-net: {}
+    depends_on:
+      lab-db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://lab-db:5432/${LAB_DB_NAME:-labapp}
+      DB_USER: ${LAB_DB_USER:-labapp}
+      DB_PASSWORD: ${LAB_DB_PASSWORD}
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+
+volumes:
+  labdbdata:
