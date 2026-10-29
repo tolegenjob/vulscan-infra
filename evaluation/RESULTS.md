@@ -112,6 +112,45 @@ TP/FP/FN это не влияет (`CaseKey` не включает `vulnType`), 
 TODO: любой FP здесь — заведомая ложная находка на заведомо безопасном приложении; разбирается
 отдельно от «шумовых» `/fp/*`-случаев внутри основного ground-truth.yaml.
 
+## E-3 — сквозная проверка (`evaluation/scenarios/e2e.yaml`)
+
+- Прогон: `evaluation/runs/<TODO>/` (манифест + ссылка на прогон Playwright/resilience-скриптов)
+- Состав: E2E-01 (полный путь UI: вход → target → verify/approve → scan XSS+SQLI+IDOR →
+  COMPLETED → findings → finding → evidence → false positive), E2E-02 (2 параллельных скана →
+  третий 429 `TOO_MANY_ACTIVE_SCANS`), E2E-05 (отмена RUNNING → CANCELLED ≤ 15 с), R-1…R-4
+  (`infra/scripts/resilience/*.sh`, уже реализованы в N-1)
+- Реализация: `vulscan-frontend/tests/e2e/*.spec.ts` (Playwright) — см. также
+  `vulscan-frontend/tests/e2e/README.md`
+
+| Сценарий | Результат | Примечание |
+|---|---|---|
+| E2E-01 (полный путь) | — | TODO: зелёный/красный, если красный — на каком шаге |
+| E2E-02 (429 на 3-м скане) | — | TODO |
+| E2E-05 (CANCELLED ≤ 15 с) | — | TODO |
+| R-1 (restart модуля) | — | TODO |
+| R-2 (простой Kafka 60 с) | — | TODO |
+| R-3 (простой core-backend 30 с) | — | TODO |
+| R-4 (простой lab-db) | — | TODO |
+
+### Тайминги (5 прогонов, план E-3.4)
+
+| Метрика | Медиана | Мин | Макс |
+|---|---|---|---|
+| создание скана → первый finding | — | — | — |
+| создание скана → COMPLETED | — | — | — |
+| запрос отмены → CANCELLED | — | — | — |
+
+### Известные ограничения E-3
+
+- Ни один из сценариев E-3 не запускался вживую в этой сессии (нет Docker/живого стенда и
+  установленного браузера Playwright в среде разработки) — тесты написаны и статически
+  проверены по исходному коду frontend/Core, но не исполнялись; см.
+  `vulscan-frontend/tests/e2e/README.md`.
+- E2E-02 жёстко предполагает `maxActiveScansPerUser=2` (значение по умолчанию в Core); если
+  `.env` стенда его переопределяет, нужно передать `E2E_MAX_ACTIVE_SCANS_PER_USER`.
+- E2E-05 может упасть из-за гонки (скан успевает завершиться раньше нажатия "Отменить") —
+  осознанное решение не маскировать это retry, см. комментарий в `cancel-scan.spec.ts`.
+
 ## Сводка (micro-average, модули разного размера)
 
 > Печатается только как сумма TP/FP/FN по модулям — не усреднение Precision/Recall (план, E-1.3).

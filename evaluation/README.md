@@ -1,4 +1,4 @@
-# evaluation — оценка модулей по ground truth (план, E-1/E-2)
+# evaluation — оценка модулей по ground truth (план, E-1/E-2/E-3)
 
 Эта директория — не отдельный репозиторий. По плану дипломной работы она должна была жить в
 `vulscan-evaluation`, но создать новый репозиторий в этой сессии нельзя (`gh repo create` отвергается:
@@ -13,16 +13,24 @@
 ```
 evaluation/
 ├── runner/            инструмент оценки (Kotlin, Gradle) — этот README его и описывает
-├── scenarios/          *.yaml сценарии прогона (план, E-2): xss.yaml, sqli.yaml, sqli-timebased.yaml, idor.yaml
+├── scenarios/          *.yaml сценарии прогона (план, E-2/E-3): xss.yaml, sqli.yaml, sqli-timebased.yaml,
+│                       idor.yaml (читаются runner'ом), e2e.yaml (план, E-3 — НЕ читается runner'ом;
+│                       декларативная конфигурация для vulscan-frontend/tests/e2e/*.spec.ts и
+│                       infra/scripts/resilience/*.sh, см. сам файл)
 ├── negatives/          негативная цель "clean" (план, E-2.4) — см. negatives/README.md
 ├── runs/               результаты прогонов (в .gitignore, кроме manifest.json каждого прогона)
-└── RESULTS.md          итоговый отчёт для диплома (шаблон без чисел, заполняется по результатам, план E-2)
+└── RESULTS.md          итоговый отчёт для диплома (шаблон без чисел, заполняется по результатам, план E-2/E-3)
 ```
 
 `sqli-timebased.yaml` — не из буквального списка файлов плана, но нужен, чтобы выполнить ЕГО ЖЕ
 требование ("time-based включается отдельным запуском... считается отдельной строкой"): раздельные
 файлы гарантируют, что два прогона одного модуля не перезатирают raw-результаты друг друга (см.
 "Отчёт при нескольких сценариях одного модуля" ниже).
+
+E-3 (сквозная проверка от UI до finding) живёт не в этом runner'е, а в `vulscan-frontend` —
+`evaluation/scenarios/e2e.yaml` в этом репозитории — только декларативная конфигурация
+(identities/endpoints/тайминги), которую Playwright-тесты там зеркалят; подробности в самом
+`e2e.yaml` и в `vulscan-frontend/tests/e2e/README.md`.
 
 ## runner — что это
 

@@ -1,0 +1,102 @@
+# E-3 — сквозная проверка (план, раздел "Этап E-3"): от UI до finding.
+#
+# В отличие от evaluation/scenarios/{xss,sqli,idor}.yaml (E-2), этот файл не читается
+# `evaluation/runner` — он не про метрики модуля, а про саму цепочку
+# UI -> Core -> Kafka -> модуль -> Core -> UI. Его исполняют:
+#   - `vulscan-frontend/tests/e2e/*.spec.ts` (Playwright, UI-сценарии 1/2/5 ниже) — зеркалят
+#     значения отсюда в `vulscan-frontend/tests/e2e/fixtures.ts` (кросс-репо, поэтому копия,
+#     а не импорт; расхождение исключается ручной проверкой при правке одного из файлов);
+#   - `infra/scripts/resilience/r{1,2,3,4}-*.sh` (уже существуют с N-1, здесь — сценарий 3,
+#     переиспользуются как есть, без отдельного e2e-варианта).
+#
+# Критерий завершения E-3 (план): "все сценарии зелёные; результаты времён внесены в
+# RESULTS.md вместе с манифестом" — заполняется по результатам реального запуска на стенде
+# (`infra/scripts/up.sh`), см. `evaluation/RESULTS.md`, раздел E-3.
+
+target:
+  name: e2e-lab-app
+  baseUrl: http://lab-app:8080
+  # Создаётся/подтверждается в UI (сценарий 1) администратором bootstrap-аккаунта
+  # ("Подтвердить вручную (админ)") — без размещения verification-файла на lab-app,
+  # т.к. lab-app не отдаёт произвольный путь по запросу и это не предмет проверки E-3.
+
+endpoints:
+  - method: GET
+    url: http://lab-app:8080/xss/reflect-text
+    parameters: [{ name: q, location: QUERY, sampleValue: "e2e-probe" }]
+    idempotent: true
+  - method: GET
+    url: http://lab-app:8080/sqli/error/products
+    parameters: [{ name: id, location: QUERY, sampleValue: "1" }]
+    idempotent: true
+  - method: GET
+    url: http://lab-app:8080/sqli/boolean/search
+    parameters: [{ name: name, location: QUERY, sampleValue: "Keyboard Lab 100" }]
+    idempotent: true
+  - method: GET
+    url: http://lab-app:8080/api/orders/{id}
+    parameters: [{ name: id, location: PATH, sampleValue: "1001" }]
+    idempotent: true
+  - method: GET
+    url: http://lab-app:8080/api/documents/{id}
+    parameters: [{ name: id, location: PATH, sampleValue: "2001" }]
+    idempotent: true
+
+# Импортируются в UI одним файлом через "Импорт из OpenAPI" (EndpointsTab) —
+# vulscan-frontend/tests/e2e/fixtures/lab-app-openapi.json — минимальный OpenAPI 3.0
+# документ с этими же 5 операциями (относительные пути, serverUrl = target.baseUrl).
+
+identities:
+  # Минимум 2 — требование NewScanPage (IDOR недоступен с < 2 identities) и IdorJobValidator.
+  - { label: alice, role: USER, loginUrl: "http://lab-app:8080/login", username: alice, password: alice-pass-1 }
+  - { label: bob, role: USER, loginUrl: "http://lab-app:8080/login", username: bob, password: bob-pass-1 }
+
+accessRules:
+  # Единственное правило, нужное NewScanPage для включения IDOR (>= 1 правило) и
+  # соответствующее IDOR-01 (seed.sql): заказ 1001 принадлежит alice, bob не должен его видеть.
+  - endpoint: "GET http://lab-app:8080/api/orders/{id}"
+    idParameter: { name: id, location: PATH }
+    idValue: "1001"
+    owner: alice
+    sensitivity: HIGH
+    ownerMarkers: ["$.content"]
+    access: [{ identity: bob, expected: DENY }]
+
+modules: [XSS, SQLI, IDOR]
+
+scenarios:
+  # (1) Основной UI-путь (план, E-3.1): вход -> target -> verify/approve -> scan
+  # XSS+SQLI+IDOR -> ожидание COMPLETED -> findings -> finding -> evidence -> FALSE_POSITIVE.
+  - id: E2E-01
+    spec: full-journey.spec.ts
+  # (2) Параллельные сканы (план, E-3.2): maxActiveScansPerUser=2 (значение по умолчанию,
+  # infra/.env.example через ScannerProperties) -> третий POST /scans отклоняется 429
+  # TOO_MANY_ACTIVE_SCANS.
+  - id: E2E-02
+    spec: parallel-scans.spec.ts
+    expect: { thirdScanStatus: 429, thirdScanCode: TOO_MANY_ACTIVE_SCANS }
+  # (5) Отмена во время RUNNING (план, E-3.5): CANCELLED <= 15 с.
+  - id: E2E-05
+    spec: cancel-scan.spec.ts
+    expect: { cancelledWithinSeconds: 15 }
+
+resilience:
+  # (3) R-1..R-4 (план, E-3.3) — уже реализованы в N-1, здесь переиспользуются без изменений.
+  scripts:
+    - infra/scripts/resilience/r1-module-restart.sh
+    - infra/scripts/resilience/r2-kafka-outage.sh
+    - infra/scripts/resilience/r3-core-outage.sh
+    - infra/scripts/resilience/r4-lab-db-outage.sh
+
+timing:
+  # (4) План, E-3.4: медианы и min-max по 5 прогонам, вносятся в RESULTS.md вручную по
+  # результатам реального запуска (здесь — только то, что измеряется и как).
+  repeats: 5
+  metrics:
+    - scanCreatedToFirstFinding
+    - scanCreatedToCompleted
+    - cancelRequestedToCancelled # должно быть <= 15 с (E-3.5)
+
+limitations:
+  - "Ни один сценарий здесь не запускался вживую в этой сессии (нет Docker/браузера с доступом к живому стенду) — только написан и статически проверен по исходному коду Core/frontend/lab-app."
+  - "Значение maxActiveScansPerUser (2) взято из ScannerProperties.limits (vulscan-core-backend) с значением по умолчанию из infra/.env.example; если .env переопределяет его, parallel-scans.spec.ts нужно поправить соответственно (см. комментарий в самом тесте)."
